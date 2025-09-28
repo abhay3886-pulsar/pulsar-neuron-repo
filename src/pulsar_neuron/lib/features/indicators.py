@@ -1,22 +1,21 @@
 from __future__ import annotations
 
+"""Deterministic indicator helpers for intraday index analysis."""
+
 import pandas as pd
 
 
 def sma(series: pd.Series, n: int) -> pd.Series:
-    """
-    Simple moving average with fixed window n.
-    Returns a series aligned to input index.
+    """Return the simple moving average over a fixed window ``n``.
+
+    The calculation requires ``n`` observations; values before that are NaN.
     """
 
     return series.rolling(n, min_periods=n).mean()
 
 
 def sma_slope(series: pd.Series, n: int) -> float:
-    """
-    One-step slope: SMA(n)[-1] - SMA(n)[-2].
-    Returns 0.0 if not enough data.
-    """
+    """Return the discrete slope of the SMA over the most recent step."""
 
     s = sma(series, n).dropna()
     if len(s) < 2:
@@ -25,10 +24,7 @@ def sma_slope(series: pd.Series, n: int) -> float:
 
 
 def volume_ratio(vol_series: pd.Series, n: int = 20) -> float:
-    """
-    Current bar volume vs median of the previous n bars.
-    Fallbacks to 1.0 if not enough history or zero median.
-    """
+    """Compare the latest volume against the median of the previous ``n`` bars."""
 
     if len(vol_series) < n + 1:
         return 1.0
@@ -39,14 +35,24 @@ def volume_ratio(vol_series: pd.Series, n: int = 20) -> float:
 
 
 def vwap_from_bars(df: pd.DataFrame) -> float:
-    """
-    Session VWAP from bars with columns: high, low, close, volume.
-    Returns 0.0 if volume sum is zero or df empty.
-    """
+    """Compute VWAP from bars with ``high``, ``low``, ``close``, ``volume`` columns."""
 
     if df.empty:
         return 0.0
-    typical = (df["high"] + df["low"] + df["close"]) / 3.0
-    num = (typical * df["volume"]).sum()
-    den = df["volume"].sum()
-    return float(num / den) if den else 0.0
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3.0
+    numerator = (typical_price * df["volume"]).sum()
+    denominator = df["volume"].sum()
+    return float(numerator / denominator) if denominator else 0.0
+
+
+def distance_from_vwap_pct(price: float, vwap: float) -> float:
+    """Return the percentage distance between ``price`` and ``vwap``.
+
+    If ``vwap`` is zero the distance is reported as ``0.0`` to avoid division
+    by zero and keep the indicator bounded.
+    """
+
+    if vwap == 0:
+        return 0.0
+    return ((price - vwap) / vwap) * 100.0
+
