@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadParamPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": "arn:aws:ssm:ap-south-1:123456789012:parameter/pulsar/neuron/*"
+    }
+  ]
+}
