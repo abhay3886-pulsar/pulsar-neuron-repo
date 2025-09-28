@@ -8,12 +8,12 @@ Timeframe = Literal["1d", "15m", "5m"]
 
 
 def get_ohlcv(symbol: str, tf: Timeframe, start, end) -> pd.DataFrame:
-    """Stub: to be implemented against your store/Broker later."""
+    """Stub: implement against your DB/API later."""
 
-    raise NotImplementedError("Wire your data source here.")
+    raise NotImplementedError
 
 
 def get_last_n(symbol: str, tf: Timeframe, n: int) -> pd.DataFrame:
-    """Stub fast path."""
+    """Stub: implement a fast path later."""
 
-    raise NotImplementedError("Wire your cache/store here.")
+    raise NotImplementedError
