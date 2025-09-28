@@ -4,18 +4,17 @@ from pydantic import BaseModel, Field
 
 
 class EntrySpec(BaseModel):
-    type: str = Field(examples=["LIMIT", "MARKET"])
+    type: str = Field(default="LIMIT")
     price: float | None = None
-    tolerance: float | None = 0.05
 
 
 class SLSpec(BaseModel):
-    type: str = Field(examples=["SL-M", "MARKET"])
+    type: str = Field(default="SL-M")
     level: float
 
 
 class TPSpec(BaseModel):
-    type: str = Field(examples=["LIMIT", "MARKET"])
+    type: str = Field(default="LIMIT")
     level: float
 
 
