@@ -1,2 +1,11 @@
-"""pulsar_neuron: deterministic trading lib + agentic brains (index-first)."""
-__all__ = ["lib", "agentic"]
+"""Top-level package for the Pulsar Neuron scaffolding."""
+
+from .lib.schemas import Action, Bias, Decision, EvidenceItem, StrategyCheck
+
+__all__ = [
+    "Action",
+    "Bias",
+    "Decision",
+    "EvidenceItem",
+    "StrategyCheck",
+]

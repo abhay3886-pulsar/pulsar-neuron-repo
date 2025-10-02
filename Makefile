@@ -1,30 +1,13 @@
-.PHONY: setup lint format test run-index run-backtest precommit pyver
-
-setup:
-	poetry install --with cloud
-	poetry run pre-commit install
-
+.PHONY: fmt lint type test advisory replay
+fmt:
+	ruff --fix .
 lint:
-	poetry run black --check .
-	poetry run isort --check-only .
-	poetry run flake8
-	poetry run mypy src/pulsar_neuron
-
-format:
-	poetry run isort .
-	poetry run black .
-
+	ruff .
+type:
+	mypy src
 test:
-	PYTHONPATH=src python -m pytest -q
-
-run-index:
-	poetry run python -m pulsar_neuron.scripts.run_index_agent
-
-run-backtest:
-	poetry run python -m pulsar_neuron.scripts.run_backtest
-
-precommit:
-	pre-commit run --all-files
-
-pyver:
-	python -c "import sys; print(sys.version)"
+	pytest -q
+advisory:
+	PYTHONPATH=src poetry run python -m pulsar_neuron.cli.advisory --symbol NIFTY --now "2025-10-01T11:15:00+05:30"
+replay:
+	PYTHONPATH=src poetry run python -m pulsar_neuron.cli.replay --symbol NIFTY --date "2025-09-29"

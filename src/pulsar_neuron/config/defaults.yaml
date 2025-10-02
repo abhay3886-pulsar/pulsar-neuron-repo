@@ -1,0 +1,15 @@
+session:
+  timezone: "Asia/Kolkata"
+  ib_window: { start: "09:15", end: "10:15" }
+  no_new_after: "14:45"
+  eod_exit: "15:20"
+risk:
+  rr_min: 1.2
+  max_positions: 2
+  wall_min_distance_em: 0.3
+volume:
+  relvol_min: 1.2
+  relvol_strong: 1.5
+models:
+  default: "gpt-4o-mini"
+  escalate: "gpt-4o"
