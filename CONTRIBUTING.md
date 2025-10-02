@@ -1,5 +1,0 @@
-- Python 3.12, Poetry, pre-commit.
-- Typed code, docstrings on public functions.
-- No broker/network calls in unit tests.
-- Keep `lib` free of LLM deps; put experiments under `agentic/experimental_llm`.
-- Secrets: use env in dev; use AWS in prod. Never commit real secrets.
