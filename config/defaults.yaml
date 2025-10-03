@@ -1,0 +1,32 @@
+cadence:
+  ohlcv5m: 60
+  oi: 90
+  chain: 150
+  breadth_vix: 300
+  context_ib: 45
+  context_mid: 75
+  context_late: 60
+
+freshness_sla_s:
+  ohlcv5m: 90
+  oi: 120
+  chain: 180
+  breadth: 300
+  vix: 300
+
+session:
+  timezone: "Asia/Kolkata"
+  ib_start: "09:15"
+  ib_end: "10:15"
+  no_new_after: "14:45"
+  eod_exit: "15:20"
+
+risk:
+  rr_min: 1.2
+  wall_min_distance_em: 0.3
+  max_positions: 2
+
+models:
+  default: "gpt-4o-mini"
+  escalate: "gpt-4o"
+  escalate_if_conf_lt: 60

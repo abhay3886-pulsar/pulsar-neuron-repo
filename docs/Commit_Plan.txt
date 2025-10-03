@@ -1,0 +1,14 @@
+Commit plan (suggested):
+1) docs: add Architecture, Swimlane, ERD, Runbook, Readiness
+2) config: defaults.yaml, markets.yaml, prompts.yaml
+3) db: add migrations 0001..0008 and seed
+4) src: contracts/ models
+5) src: db/ repos + postgres.py stub
+6) src: ingest/ and normalize/ stubs
+7) src: service/ (refs_levels, baselines, validators, context_pack)
+8) src: tools/ core stubs (trend_vwap, orb_ib, derivs_oi, options_walls, greeks_regime, volume, risk_rr)
+9) src: strategies/ stubs
+10) src: agentic/ (prompts, planner, tool_runner, chooser, verifier, decision_fmt)
+11) src: scheduler/jobs.py and telemetry/metrics.py
+12) cli/: advisory.py and replay.py; README update
+13) tests/: empty test files placeholders

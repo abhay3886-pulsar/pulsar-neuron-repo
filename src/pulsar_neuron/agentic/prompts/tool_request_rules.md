@@ -1,0 +1,1 @@
+# Tool Request Rules (stub)\nAsk for walls/EM/PA only if needed.

@@ -1,0 +1,14 @@
+symbols:
+  - NIFTY
+  - BANKNIFTY
+expiries:
+  default_roll: "weekly"
+sessions:
+  india:
+    tz: "Asia/Kolkata"
+    regular:
+      open: "09:15"
+      close: "15:30"
+    ib_window:
+      start: "09:15"
+      end: "10:15"

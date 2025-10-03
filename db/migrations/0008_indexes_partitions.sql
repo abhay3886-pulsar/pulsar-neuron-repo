@@ -1,0 +1,5 @@
+-- Suggested indexes / partitions (implement per your Postgres flavor)
+-- CREATE INDEX ON ohlcv(symbol, ts_ist DESC, tf);
+-- CREATE INDEX ON fut_oi(symbol, ts_ist DESC);
+-- CREATE INDEX ON context_pack(symbol, ts_ist DESC);
+-- Consider daily partitioning for ohlcv / option_chain tables.

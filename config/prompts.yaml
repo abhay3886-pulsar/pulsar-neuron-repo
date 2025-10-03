@@ -1,0 +1,8 @@
+prompts:
+  brain:
+    file: "src/pulsar_neuron/agentic/prompts/brain_prompt.md"
+    model: "gpt-4o-mini"
+  tool_rules:
+    file: "src/pulsar_neuron/agentic/prompts/tool_request_rules.md"
+    model: "gpt-4o-mini"
+escalate_if_conf_lt: 60

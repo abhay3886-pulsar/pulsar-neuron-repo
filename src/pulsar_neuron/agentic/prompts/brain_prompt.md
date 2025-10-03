@@ -1,0 +1,1 @@
+# Brain Prompt (stub)\nExplain bull vs bear. Output JSON only.

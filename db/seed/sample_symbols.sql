@@ -1,0 +1,2 @@
+-- Sample symbols (placeholder)
+-- INSERT INTO symbols(symbol) VALUES ('NIFTY'),('BANKNIFTY');
