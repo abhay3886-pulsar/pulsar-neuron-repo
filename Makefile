@@ -19,3 +19,15 @@ run-spine:
 
 run-ingestors:
 	poetry run python -m pulsar_neuron.cli.run_ingestors
+
+db-migrate:
+	poetry run python -m pulsar_neuron.cli.db_init
+
+db-oi-mock:
+	poetry run python -m pulsar_neuron.cli.oi_to_db
+
+db-options-mock:
+	poetry run python -m pulsar_neuron.cli.options_to_db
+
+db-derivs-read:
+	poetry run python -m pulsar_neuron.cli.read_derivs
