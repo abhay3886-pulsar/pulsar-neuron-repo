@@ -31,3 +31,6 @@ db-options-mock:
 
 db-derivs-read:
 	poetry run python -m pulsar_neuron.cli.read_derivs
+
+run-live:
+	poetry run python -m pulsar_neuron.cli.live_bars
