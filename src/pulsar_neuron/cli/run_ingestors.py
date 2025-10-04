@@ -1,23 +1,23 @@
 """
-Test harness for all ingestors (mock-only).
+CLI harness to test all mock ingestors end-to-end.
 """
-from pulsar_neuron.ingest import fut_oi_job, market_job, ohlcv_job, options_job
+from pulsar_neuron.ingest import ohlcv_job, fut_oi_job, options_job, market_job
 
 
 def main():
-    symbols = ["NIFTY 50", "NIFTY BANK"]
-    print("▶️  OHLCV (mock)")
-    bars = ohlcv_job.run(symbols, tf="5m", mode="mock")
-    print(f"✅ {sum(len(v) for v in bars.values())} bars fetched")
+    syms = ["NIFTY 50","NIFTY BANK"]
+    print("▶️ OHLCV")
+    bars = ohlcv_job.run(syms)
+    print(f"✅ {sum(len(v) for v in bars.values())} bars")
 
-    print("▶️  Futures OI (mock)")
-    print(fut_oi_job.run(["NIFTY", "BANKNIFTY"], mode="mock"))
+    print("▶️ Futures OI")
+    print(fut_oi_job.run(['NIFTY','BANKNIFTY']))
 
-    print("▶️  Options Chain (mock)")
-    opt = options_job.run(["NIFTY", "BANKNIFTY"], mode="mock")
-    print(f"✅ {len(opt)} option records")
+    print("▶️ Options Chain")
+    chain = options_job.run(['NIFTY','BANKNIFTY'])
+    print(f"✅ {len(chain)} option rows")
 
-    print("▶️  Market Breadth / VIX (mock)")
+    print("▶️ Market Breadth / VIX")
     print(market_job.run())
 
 
