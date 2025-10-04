@@ -1,9 +1,13 @@
-[tool.ruff]
-line-length = 100
+[tool.poetry]
+name = "pulsar-neuron"
+version = "0.1.0"
+description = "Pulsar Neuron — Postgres-only live market spine (indices, context, strategies)"
+authors = ["Abhay Singh <you@example.com>"]
+packages = [{ include = "pulsar_neuron", from = "src" }]
 
-[tool.mypy]
-python_version = "3.11"
-ignore_missing_imports = true
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
 
-[tool.pytest.ini_options]
-addopts = "-q"
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
