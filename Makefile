@@ -16,3 +16,6 @@ advisory:
 
 run-spine:
 	poetry run python -m pulsar_neuron.cli.run_spine
+
+run-ingestors:
+	poetry run python -m pulsar_neuron.cli.run_ingestors
