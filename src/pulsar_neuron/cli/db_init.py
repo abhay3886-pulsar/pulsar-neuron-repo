@@ -1,12 +1,11 @@
-"""Run database migrations for Pulsar Neuron."""
 from __future__ import annotations
 
 from pulsar_neuron.db.postgres import migrate
 
 
-def main() -> None:
+def main():
     migrate()
-    print("✅ migrations applied")
+    print("✅ DB initialized: ohlcv, fut_oi, options_chain, market_breadth")
 
 
 if __name__ == "__main__":

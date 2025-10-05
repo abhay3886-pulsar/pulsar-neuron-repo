@@ -44,6 +44,12 @@ run-scheduler:
 watch-health:
         poetry run python -m pulsar_neuron.cli.watch_health
 
+db-init:
+        poetry run python -m pulsar_neuron.cli.db_init
+
+db-smoke:
+        poetry run python -m pulsar_neuron.cli.db_smoke
+
 # Usage:
 #   export PGHOST=... PGDATABASE=... PGUSER=... PGPASSWORD=...
 #   export KITE_API_KEY=... KITE_ACCESS_TOKEN=...

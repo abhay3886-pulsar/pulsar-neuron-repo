@@ -1,4 +1,3 @@
-"""Options Chain repository — UPSERT and reads."""
 from __future__ import annotations
 
 from typing import Dict, Iterable, List, Mapping
@@ -20,8 +19,7 @@ on conflict (symbol, ts_ist, expiry, strike, side) do update set
 """
 
 READ_LAST_TS_SQL = """
-select symbol, ts_ist
-from options_chain
+select ts_ist from options_chain
 where symbol = %s
 order by ts_ist desc
 limit 1
@@ -46,12 +44,11 @@ def upsert_many(rows: Iterable[Mapping]) -> int:
 
 
 def read_latest_snapshot(symbol: str) -> List[Dict]:
-    """Return the latest full snapshot rows for a symbol; empty if none."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(READ_LAST_TS_SQL, (symbol,))
-        last = cur.fetchone()
-        if not last:
+        tsrow = cur.fetchone()
+        if not tsrow:
             return []
-        ts = last["ts_ist"]
+        ts = tsrow["ts_ist"]
         cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
         return cur.fetchall()
