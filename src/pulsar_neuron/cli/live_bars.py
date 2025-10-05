@@ -7,8 +7,8 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
+from pulsar_neuron.config.kite_auth import TokenWatcher, load_kite_creds
 from pulsar_neuron.config.loader import load_config
-from pulsar_neuron.config.secrets import get_kite_credentials
 from pulsar_neuron.ingest.bar_builder import BarBuilder
 from pulsar_neuron.ingest.derive_tfs import derive_15m
 from pulsar_neuron.db.ohlcv_repo import upsert_many
@@ -28,9 +28,8 @@ def _load_tokens() -> Dict[str, int]:
 
 
 def main():
-    kite = get_kite_credentials()
-    api_key = kite["api_key"]
-    access_token = kite["access_token"]
+    creds = load_kite_creds()
+    api_key, access_token = creds["api_key"], creds["access_token"]
     if KiteTicker is None:
         raise RuntimeError("kiteconnect is not installed. pip install kiteconnect")
 
@@ -68,6 +67,28 @@ def main():
     kws.on_close = on_close
 
     stop = threading.Event()
+
+    watcher = TokenWatcher()
+
+    def token_watchdog():
+        nonlocal kws
+        while not stop.is_set():
+            if watcher.wait_for_change() and not stop.is_set():
+                print("[live_bars] token changed → reconnecting…")
+                try:
+                    kws.stop()
+                except Exception:
+                    pass
+                new = load_kite_creds()
+                new_api_key, new_access_token = new["api_key"], new["access_token"]
+                kws = KiteTicker(new_api_key, new_access_token)
+                kws.on_ticks = on_ticks
+                kws.on_connect = on_connect
+                kws.on_close = on_close
+                kws.connect(threaded=True)
+
+    tw = threading.Thread(target=token_watchdog, daemon=True)
+    tw.start()
 
     def flusher():
         while not stop.is_set():
