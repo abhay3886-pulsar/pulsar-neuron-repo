@@ -57,13 +57,13 @@ def refresh_now(secret_id: str) -> dict:
 def get_db_credentials() -> dict:
     """Return Pulsar Neuron DB credentials."""
 
-    return get_secret_json("pulsar-neuron/postgres")
+    return get_secret_json("pulsar/db")
 
 
 def get_kite_credentials() -> dict:
     """Return Kite credentials (api_key, access_token)."""
 
-    return get_secret_json("pulsar-neuron/kite")
+    return get_secret_json("pulsar/kite")
 
 
 def get_services_credentials() -> dict:
