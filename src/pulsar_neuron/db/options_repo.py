@@ -1,19 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime
+import os
+from datetime import datetime, date
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from zoneinfo import ZoneInfo
-
 from .postgres import get_conn
 
 try:
     from psycopg2.extras import RealDictCursor, execute_values  # type: ignore
     _HAVE_EXTRAS = True
 except Exception:  # pragma: no cover
+    RealDictCursor = None  # type: ignore[assignment]
+    execute_values = None  # type: ignore[assignment]
     _HAVE_EXTRAS = False
 
 IST = ZoneInfo("Asia/Kolkata")
+
+# ---- Table name: default to singular; override with PULSAR_OPTIONS_TABLE if your DB uses plural.
+TABLE = os.getenv("PULSAR_OPTIONS_TABLE", "option_chain")
 
 __all__ = [
     "upsert_many",
@@ -25,11 +30,11 @@ __all__ = [
 ]
 
 # --------------------------------------------------------------------------------------
-# SQL
+# SQL (use TABLE variable)
 # --------------------------------------------------------------------------------------
 
-UPSERT_SQL = """
-INSERT INTO options_chain(
+UPSERT_SQL = f"""
+INSERT INTO {TABLE}(
   symbol, ts_ist, expiry, strike, side, ltp, iv, oi, volume, delta, gamma, theta, vega
 )
 VALUES %s
@@ -44,22 +49,22 @@ ON CONFLICT (symbol, ts_ist, expiry, strike, side) DO UPDATE SET
   vega   = EXCLUDED.vega;
 """
 
-READ_LAST_TS_SQL = """
+READ_LAST_TS_SQL = f"""
 SELECT MAX(ts_ist) AS ts_ist
-FROM options_chain
+FROM {TABLE}
 WHERE symbol = %s
 """
 
-READ_SNAPSHOT_SQL = """
+READ_SNAPSHOT_SQL = f"""
 SELECT symbol, ts_ist, expiry, strike, side, ltp, iv, oi, volume, delta, gamma, theta, vega
-FROM options_chain
+FROM {TABLE}
 WHERE symbol = %s AND ts_ist = %s
 ORDER BY strike ASC, side ASC
 """
 
-READ_SNAPSHOT_BY_EXPIRY_SQL = """
+READ_SNAPSHOT_BY_EXPIRY_SQL = f"""
 SELECT symbol, ts_ist, expiry, strike, side, ltp, iv, oi, volume, delta, gamma, theta, vega
-FROM options_chain
+FROM {TABLE}
 WHERE symbol = %s AND ts_ist = %s AND expiry = %s
 ORDER BY strike ASC, side ASC
 """
@@ -76,10 +81,16 @@ def _ensure_ist(dt: datetime) -> datetime:
 def _values_from_rows(rows: Iterable[Mapping[str, Any]]) -> List[Tuple[Any, ...]]:
     vals: List[Tuple[Any, ...]] = []
     for r in rows:
+        exp = r["expiry"]
+        # Coerce expiry to date if a datetime or string "YYYY-MM-DD"
+        if isinstance(exp, datetime):
+            exp = exp.date()
+        elif isinstance(exp, str):
+            exp = date.fromisoformat(exp)
         vals.append((
             r["symbol"],
             _ensure_ist(r["ts_ist"]),
-            r["expiry"],
+            exp,
             r["strike"],
             r["side"],      # 'CE' | 'PE'
             r["ltp"],
@@ -93,8 +104,12 @@ def _values_from_rows(rows: Iterable[Mapping[str, Any]]) -> List[Tuple[Any, ...]
         ))
     return vals
 
+def _dictify_many(cur, rows):
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in rows]
+
 # --------------------------------------------------------------------------------------
-# Public API (backwards compatible)
+# Public API
 # --------------------------------------------------------------------------------------
 
 def upsert_many(rows: Iterable[Mapping]) -> int:
@@ -109,12 +124,12 @@ def upsert_many(rows: Iterable[Mapping]) -> int:
     values = _values_from_rows(rows_list)
 
     with get_conn() as conn, conn.cursor() as cur:
-        if _HAVE_EXTRAS:
+        if _HAVE_EXTRAS and execute_values is not None:
             template = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             execute_values(cur, UPSERT_SQL, values, template=template, page_size=2000)
         else:
-            single = """
-            INSERT INTO options_chain(
+            single = f"""
+            INSERT INTO {TABLE}(
               symbol, ts_ist, expiry, strike, side, ltp, iv, oi, volume, delta, gamma, theta, vega
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (symbol, ts_ist, expiry, strike, side) DO UPDATE SET
@@ -131,40 +146,79 @@ def read_latest_snapshot(symbol: str) -> List[Dict]:
     EXACT signature preserved.
     Returns the latest full chain snapshot (all strikes/sides) as list[dict].
     """
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_LAST_TS_SQL, (symbol,))
-        tsrow = cur.fetchone()
-        if not tsrow or not tsrow["ts_ist"]:
-            return []
-        ts = _ensure_ist(tsrow["ts_ist"])
-        cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
+    with get_conn() as conn:
+        if _HAVE_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_LAST_TS_SQL, (symbol,))
+                tsrow = cur.fetchone()
+                if not tsrow or not tsrow["ts_ist"]:
+                    return []
+                ts = _ensure_ist(tsrow["ts_ist"])
+                cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_LAST_TS_SQL, (symbol,))
+                tsrow = cur.fetchone()
+                if not tsrow or not tsrow[0]:
+                    return []
+                ts = _ensure_ist(tsrow[0])
+                cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
+                rows = cur.fetchall()
+                return _dictify_many(cur, rows)
 
 # --------------------------------------------------------------------------------------
-# Useful extras (optional)
+# Useful extras
 # --------------------------------------------------------------------------------------
 
 def get_latest_ts(symbol: str) -> Optional[datetime]:
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_LAST_TS_SQL, (symbol,))
-        row = cur.fetchone()
-        ts = row["ts_ist"] if row else None
-        return _ensure_ist(ts) if isinstance(ts, datetime) else None
+    with get_conn() as conn:
+        if _HAVE_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_LAST_TS_SQL, (symbol,))
+                row = cur.fetchone()
+                ts = row["ts_ist"] if row else None
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_LAST_TS_SQL, (symbol,))
+                row = cur.fetchone()
+                ts = row[0] if row else None
+    return _ensure_ist(ts) if isinstance(ts, datetime) else None
 
 
 def read_snapshot(symbol: str, ts_ist: datetime) -> List[Dict]:
     ts = _ensure_ist(ts_ist)
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
+    with get_conn() as conn:
+        if _HAVE_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_SNAPSHOT_SQL, (symbol, ts))
+                rows = cur.fetchall()
+                return _dictify_many(cur, rows)
 
 
-def read_snapshot_by_expiry(symbol: str, ts_ist: datetime, expiry: datetime) -> List[Dict]:
+def read_snapshot_by_expiry(symbol: str, ts_ist: datetime, expiry: datetime | date | str) -> List[Dict]:
     ts = _ensure_ist(ts_ist)
-    exp = _ensure_ist(expiry)
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_SNAPSHOT_BY_EXPIRY_SQL, (symbol, ts, exp))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
+    # Normalize expiry to date
+    if isinstance(expiry, datetime):
+        exp = expiry.date()
+    elif isinstance(expiry, str):
+        exp = date.fromisoformat(expiry)
+    else:
+        exp = expiry  # already date
+    with get_conn() as conn:
+        if _HAVE_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_SNAPSHOT_BY_EXPIRY_SQL, (symbol, ts, exp))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_SNAPSHOT_BY_EXPIRY_SQL, (symbol, ts, exp))
+                rows = cur.fetchall()
+                return _dictify_many(cur, rows)

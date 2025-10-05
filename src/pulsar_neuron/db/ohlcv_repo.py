@@ -13,6 +13,8 @@ try:
     from psycopg2.extras import RealDictCursor, execute_values  # type: ignore
     _HAVE_PSYCOPG2_EXTRAS = True
 except Exception:  # pragma: no cover
+    RealDictCursor = None  # type: ignore[assignment]
+    execute_values = None  # type: ignore[assignment]
     _HAVE_PSYCOPG2_EXTRAS = False
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -108,6 +110,15 @@ def _values_from_rows(rows: Iterable[Mapping[str, Any]]) -> List[Tuple[Any, ...]
     return vals
 
 
+def _dictify_many(cur, rows):
+    """
+    Fallback converter when RealDictCursor isn't available:
+    build list[dict] from cursor.description + row tuples.
+    """
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in rows]
+
+
 # --------------------------------------------------------------------------------------
 # Public API (backwards compatible)
 # --------------------------------------------------------------------------------------
@@ -126,7 +137,7 @@ def upsert_many(rows: Iterable[Mapping[str, Any]], batch_size: int = 2000) -> in
     values = _values_from_rows(rows_list)
 
     with get_conn() as conn, conn.cursor() as cur:
-        if _HAVE_PSYCOPG2_EXTRAS:
+        if _HAVE_PSYCOPG2_EXTRAS and execute_values is not None:
             # Use execute_values for bulk speed
             template = "(%s,%s,%s,%s,%s,%s,%s,%s)"
             execute_values(cur, UPSERT_SQL, values, template=template, page_size=batch_size)
@@ -151,11 +162,19 @@ def read_last_n(symbol: str, tf: str, n: int) -> List[Dict[str, Any]]:
     """
     Return the last N bars for (symbol, tf) in ascending ts_ist order.
     """
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_LAST_N_SQL, (symbol, tf, n))
-        rows = cur.fetchall()  # newest→oldest
-        rows.reverse()         # ascending
-        return [dict(r) for r in rows]
+    with get_conn() as conn:
+        if _HAVE_PSYCOPG2_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_LAST_N_SQL, (symbol, tf, n))
+                rows = cur.fetchall()  # newest→oldest
+                rows.reverse()         # ascending
+                return [dict(r) for r in rows]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_LAST_N_SQL, (symbol, tf, n))
+                rows = cur.fetchall()
+                rows.reverse()
+                return _dictify_many(cur, rows)
 
 
 def read_range(symbol: str, tf: str, start: datetime, end: datetime) -> List[Dict[str, Any]]:
@@ -165,10 +184,16 @@ def read_range(symbol: str, tf: str, start: datetime, end: datetime) -> List[Dic
     """
     start_ist = _ensure_ist(start)
     end_ist = _ensure_ist(end)
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_RANGE_SQL_CLOSED, (symbol, tf, start_ist, end_ist))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
+    with get_conn() as conn:
+        if _HAVE_PSYCOPG2_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_RANGE_SQL_CLOSED, (symbol, tf, start_ist, end_ist))
+                return [dict(r) for r in cur.fetchall()]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_RANGE_SQL_CLOSED, (symbol, tf, start_ist, end_ist))
+                rows = cur.fetchall()
+                return _dictify_many(cur, rows)
 
 
 # --------------------------------------------------------------------------------------
@@ -181,15 +206,22 @@ def read_range_semi_open(symbol: str, tf: str, start: datetime, end: datetime) -
     """
     start_ist = _ensure_ist(start)
     end_ist = _ensure_ist(end)
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_RANGE_SQL_SEMI_OPEN, (symbol, tf, start_ist, end_ist))
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
+    with get_conn() as conn:
+        if _HAVE_PSYCOPG2_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_RANGE_SQL_SEMI_OPEN, (symbol, tf, start_ist, end_ist))
+                return [dict(r) for r in cur.fetchall()]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_RANGE_SQL_SEMI_OPEN, (symbol, tf, start_ist, end_ist))
+                rows = cur.fetchall()
+                return _dictify_many(cur, rows)
 
 
 def get_max_ts(symbol: str, tf: str) -> Optional[datetime]:
     """
     Returns the latest ts_ist for (symbol, tf) or None if no data.
+    Always returns IST tz-aware timestamp when present.
     """
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(READ_MAX_TS_SQL, (symbol, tf))
@@ -205,7 +237,14 @@ def read_last_complete_before(symbol: str, tf: str, boundary: datetime) -> Optio
     want the previous, fully closed bar for decisions.
     """
     boundary_ist = _ensure_ist(boundary)
-    with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
-        cur.execute(READ_LAST_COMPLETE_BEFORE_SQL, (symbol, tf, boundary_ist))
-        row = cur.fetchone()
-        return dict(row) if row else None
+    with get_conn() as conn:
+        if _HAVE_PSYCOPG2_EXTRAS and RealDictCursor is not None:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:  # type: ignore[arg-type]
+                cur.execute(READ_LAST_COMPLETE_BEFORE_SQL, (symbol, tf, boundary_ist))
+                row = cur.fetchone()
+                return dict(row) if row else None
+        else:
+            with conn.cursor() as cur:
+                cur.execute(READ_LAST_COMPLETE_BEFORE_SQL, (symbol, tf, boundary_ist))
+                row = cur.fetchone()
+                return _dictify_many(cur, [row])[0] if row else None
