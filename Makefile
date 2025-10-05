@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────
 # PHONY targets (non-file)
 # ─────────────────────────────────────────────
-.PHONY: fmt lint type test migrate advisory run-spine run-ingestors token-check db-migrate db-oi-mock db-options-mock db-derivs-read run-live run-scheduler watch-health db-init db-smoke run-oi run-options run-market
+.PHONY: fmt lint type test migrate advisory run-spine run-ingestors token-check db-migrate db-oi-mock db-options-mock db-derivs-read run-live run-scheduler watch-health db-init db-smoke run-oi run-options run-market run-monitor alert-signals
 
 # ─────────────────────────────────────────────
 # Core maintenance
@@ -58,10 +58,16 @@ run-oi:
 	poetry run python -m pulsar_neuron.ingest.fut_oi_job
 
 run-options:
-	poetry run python -m pulsar_neuron.ingest.options_job
+        poetry run python -m pulsar_neuron.ingest.options_job
 
 run-market:
-	poetry run python -m pulsar_neuron.ingest.market_job
+        poetry run python -m pulsar_neuron.ingest.market_job
+
+run-monitor:
+	poetry run python -m pulsar_neuron.cli.monitor_daemon
+
+alert-signals:
+	poetry run python -m pulsar_neuron.cli.run_spine
 
 # ─────────────────────────────────────────────
 # Live & scheduler loops
