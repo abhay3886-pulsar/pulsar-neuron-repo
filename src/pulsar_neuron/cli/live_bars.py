@@ -29,37 +29,50 @@ def _load_tokens() -> Dict[str, int]:
 
 def main():
     creds = load_kite_creds()
+    if not creds.get("api_key") or not creds.get("access_token"):
+        raise RuntimeError(f"Invalid Kite creds: got keys {list(creds.keys())}")
     api_key, access_token = creds["api_key"], creds["access_token"]
+
     if KiteTicker is None:
         raise RuntimeError("kiteconnect is not installed. pip install kiteconnect")
 
     token_map = _load_tokens()
     symbols = list(token_map.keys())
     tokens = list(token_map.values())
+    token_to_symbol: Dict[int, str] = {tok: sym for sym, tok in token_map.items()}
 
     builder = BarBuilder(symbols=symbols, tf="5m")
     lock = threading.Lock()
     recent_5m_buffer: Dict[str, List[dict]] = {s: [] for s in symbols}
 
     def on_ticks(ws, ticks):
+        now_utc = datetime.now(timezone.utc)
         with lock:
             for t in ticks:
                 token = t.get("instrument_token")
-                price = float(t.get("last_price") or t.get("last_trade_price") or 0.0)
-                if not token or not price:
+                price_raw = t.get("last_price") or t.get("last_trade_price")
+                if not token or price_raw in (None, 0, 0.0):
                     continue
-                symbol = next((s for s, tok in token_map.items() if tok == token), None)
+                symbol = token_to_symbol.get(token)
                 if not symbol:
                     continue
-                vol = int(t.get("volume", 0))
-                builder.on_tick(symbol, price, vol=vol, ts=datetime.now(timezone.utc))
+                price = float(price_raw)
+                vol = int(t.get("volume", 0) or 0)
+                builder.on_tick(symbol, price, vol=vol, ts=now_utc)
 
     def on_connect(ws, response):
         ws.subscribe(tokens)
         ws.set_mode(ws.MODE_FULL, tokens)
+        print("[live_bars] connected & subscribed")
 
     def on_close(ws, code, reason):
         print(f"[live_bars] socket closed: {code} {reason}", file=sys.stderr)
+
+        # try quick reconnect (non-fatal)
+        try:
+            ws.connect(threaded=True)
+        except Exception:
+            pass
 
     kws = KiteTicker(api_key, access_token)
     kws.on_ticks = on_ticks
@@ -104,15 +117,23 @@ def main():
                 if len(recent_5m_buffer[s]) > 12:
                     recent_5m_buffer[s] = recent_5m_buffer[s][-12:]
 
-            upsert_many(completed)
+            # write 5m
+            try:
+                upsert_many(completed)
+            except Exception as e:
+                print(f"[live_bars] upsert_many(5m) failed: {e}", file=sys.stderr)
 
+            # derive & write 15m
             derived_rows: List[dict] = []
             for s, buf in recent_5m_buffer.items():
                 if len(buf) >= 3:
                     last_three = buf[-3:]
                     derived_rows.extend(derive_15m(last_three))
             if derived_rows:
-                upsert_many(derived_rows)
+                try:
+                    upsert_many(derived_rows)
+                except Exception as e:
+                    print(f"[live_bars] upsert_many(15m) failed: {e}", file=sys.stderr)
 
     t = threading.Thread(target=flusher, daemon=True)
     t.start()
@@ -124,14 +145,19 @@ def main():
         except Exception:
             pass
         t.join(timeout=2.0)
+        tw.join(timeout=2.0)
         print("[live_bars] Shutdown complete.")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    kws.connect(threaded=False)
+    # ✅ run in threaded mode initially too (consistent with hot-reload reconnects)
+    kws.connect(threaded=True)
 
-
-if __name__ == "__main__":
-    main()
+    # keep main thread alive
+    try:
+        while not stop.is_set():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        _shutdown()

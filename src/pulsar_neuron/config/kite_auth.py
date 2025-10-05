@@ -1,57 +1,80 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import threading
 import time
-from pathlib import Path
 from typing import Dict
 
-from pulsar_neuron.config.secrets import get_kite_credentials
+from pulsar_neuron.config.secrets import get_secret_json
 
-DEFAULT_TOKEN_FILE = Path(os.getenv("KITE_TOKEN_FILE", "~/.config/pulsar/kite_token.json")).expanduser()
+log = logging.getLogger(__name__)
 
+# Default token file for local dev (updated by your Pulsar Algo token service)
+LOCAL_TOKEN_FILE = os.path.expanduser("~/.pulsar/kite_tokens.json")
 
-def _load_from_file(p: Path) -> Dict[str, str] | None:
-    if not p.exists():
-        return None
-    try:
-        data = json.loads(p.read_text())
-        ak, at = data.get("api_key"), data.get("access_token")
-        if ak and at:
-            return {"api_key": ak, "access_token": at}
-    except Exception:
-        pass
-    return None
+# AWS secret for EC2 mode
+SECRET_ID = "pulsar-neuron/kite-tokens"
 
 
-def load_kite_creds() -> Dict[str, str]:
-    """Prefer local token file (written by Pulsar-Algo), else fallback to AWS Secrets Manager."""
+def _load_from_file() -> dict:
+    """Load kite tokens from ~/.pulsar/kite_tokens.json."""
+    if not os.path.exists(LOCAL_TOKEN_FILE):
+        raise FileNotFoundError(f"Token file not found: {LOCAL_TOKEN_FILE}")
+    with open(LOCAL_TOKEN_FILE, "r") as f:
+        data = json.load(f)
+    if "api_key" not in data or "access_token" not in data:
+        raise KeyError("kite_tokens.json missing api_key or access_token")
+    return data
 
-    creds = _load_from_file(DEFAULT_TOKEN_FILE)
-    return creds or get_kite_credentials()
+
+def load_kite_creds() -> dict:
+    """
+    Load Kite credentials:
+    - If AWS Secrets Manager key exists (in EC2 env), use it.
+    - Otherwise, fall back to local ~/.pulsar/kite_tokens.json.
+    """
+    env = os.getenv("APP_ENV", "local")
+    if env == "ec2":
+        try:
+            secret = get_secret_json(SECRET_ID)
+            log.info("✅ Loaded Kite creds from AWS secret %s", SECRET_ID)
+            return secret
+        except Exception as e:
+            log.warning("⚠️ Failed to fetch secret %s, fallback to file: %s", SECRET_ID, e)
+
+    return _load_from_file()
 
 
 class TokenWatcher:
-    """Watches token file for modification and triggers reconnect when changed."""
+    """
+    Watches kite_tokens.json for updates and notifies live_bars.
+    """
 
-    def __init__(self, path: Path = DEFAULT_TOKEN_FILE, poll_secs: float = 10.0):
-        self.path = path
-        self.poll_secs = poll_secs
-        self._last = self._mtime()
+    def __init__(self, poll_interval: float = 30.0):
+        self._path = LOCAL_TOKEN_FILE
+        self._poll_interval = poll_interval
+        self._last_mtime = 0.0
+        self._changed = threading.Event()
+        self._thread = threading.Thread(target=self._poll, daemon=True)
+        self._thread.start()
 
-    def _mtime(self) -> float | None:
-        try:
-            return self.path.stat().st_mtime
-        except FileNotFoundError:
-            return None
-
-    def wait_for_change(self) -> bool:
+    def _poll(self):
+        """Poll file modification time."""
         while True:
-            time.sleep(self.poll_secs)
             try:
-                m = self.path.stat().st_mtime
+                mtime = os.path.getmtime(self._path)
+                if mtime != self._last_mtime:
+                    self._last_mtime = mtime
+                    self._changed.set()
             except FileNotFoundError:
-                m = None
-            if m != self._last:
-                self._last = m
-                return True
+                pass
+            time.sleep(self._poll_interval)
+
+    def wait_for_change(self, timeout: float | None = None) -> bool:
+        """Block until file changes (or timeout)."""
+        changed = self._changed.wait(timeout)
+        if changed:
+            self._changed.clear()
+        return changed
