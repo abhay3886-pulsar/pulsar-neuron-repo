@@ -1,4 +1,8 @@
-"""Market data provider protocol and shared data structures."""
+"""Market data provider protocol and shared data structures.
+
+Prices in INR (float). IV is fraction (0–1). Greeks are BS, theta per day.
+``expiry`` is an ISO ``YYYY-MM-DD`` string.
+"""
 
 from __future__ import annotations
 

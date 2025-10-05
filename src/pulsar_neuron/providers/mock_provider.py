@@ -121,7 +121,8 @@ class MockMarketProvider(MarketProvider):
                 intrinsic = max(0.0, atm - strike)
                 ce_price = max(1.0, intrinsic + rng.uniform(2.0, 25.0))
                 pe_price = max(1.0, max(0.0, strike - atm) + rng.uniform(2.0, 25.0))
-                iv = max(10.0, min(45.0 + rng.uniform(-5.0, 5.0), 120.0))
+                # IV as FRACTION (0.10–1.20)
+                iv = max(0.10, min(0.45 + rng.uniform(-0.05, 0.05), 1.20))
                 change = int(rng.uniform(-20_000, 20_000))
                 volume = int(abs(rng.gauss(150_000, 40_000)))
                 greeks = {
@@ -148,6 +149,7 @@ class MockMarketProvider(MarketProvider):
                         vega=greeks["vega"],
                     )
                 )
+                # PE IV slightly perturbed but still in fraction units
                 rows.append(
                     OptionRow(
                         symbol=symbol,
@@ -156,7 +158,7 @@ class MockMarketProvider(MarketProvider):
                         strike=float(strike),
                         side="PE",
                         ltp=float(pe_price),
-                        iv=float(iv + rng.uniform(-3.0, 3.0)),
+                        iv=float(max(0.10, min(iv + rng.uniform(-0.03, 0.03), 1.20))),
                         oi=int(200_000 + rng.uniform(-50_000, 50_000)),
                         doi=-change,
                         volume=volume,
@@ -166,6 +168,7 @@ class MockMarketProvider(MarketProvider):
                         vega=greeks["vega"],
                     )
                 )
+        rows.sort(key=lambda r: (r["symbol"], r["expiry"], r["strike"], r["side"], r["ts_ist"]))
         return rows
 
     def fetch_breadth(self) -> BreadthRow:
