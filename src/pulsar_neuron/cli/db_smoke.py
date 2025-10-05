@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from pulsar_neuron.db.market_repo import upsert_one, read_latest
-from pulsar_neuron.db.ohlcv_repo import read_last_n
+from pulsar_neuron.db_legacy.market_repo import upsert_one, read_latest
+from pulsar_neuron.db_legacy.ohlcv_repo import read_last_n
 
 
 def main():

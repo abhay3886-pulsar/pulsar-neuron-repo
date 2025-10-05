@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pulsar_neuron.db.postgres import migrate
+from pulsar_neuron.db_legacy.postgres import migrate
 
 
 def main():

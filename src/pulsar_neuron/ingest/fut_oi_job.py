@@ -1,52 +1,78 @@
 from __future__ import annotations
-import logging, datetime
-from typing import List, Dict
-from pulsar_neuron.db.fut_oi_repo import upsert_many
-from pulsar_neuron.normalize.fut_oi_norm import normalize_fut_oi
-from pulsar_neuron.config.loader import load_config
-from pulsar_neuron.service.kite_client import KiteRest
 
-log = logging.getLogger(__name__)
+import logging
+from datetime import date, time
+from typing import Sequence
 
+from pulsar_neuron.config.loader import load_markets
+from pulsar_neuron.db import insert_or_update_fut_oi_baseline, upsert_fut_oi
+from pulsar_neuron.normalize import normalize_fut_oi
+from pulsar_neuron.providers import resolve_provider
+from pulsar_neuron.timeutils import now_ist
 
-def _build_rows_from_quote(now, symbols: List[str], fut_tokens: Dict[str, int], quotes: Dict) -> list[dict]:
-    rows = []
-    for s in symbols:
-        tok = fut_tokens.get(s)
-        if not tok:
-            continue
-        q = quotes.get(str(tok)) or quotes.get(tok) or {}
-        oi = q.get("oi") or q.get("last_quantity") or 0
-        last_price = q.get("last_price") or q.get("last_trade_price") or 0.0
-        rows.append({"symbol": s, "ts_ist": now, "oi": int(oi or 0), "price": float(last_price or 0.0)})
-    return rows
+logger = logging.getLogger(__name__)
 
 
-def run(mode: str = "live") -> None:
-    cfg = load_config("markets.yaml")
-    symbols = list(cfg.get("tokens") or {})
-    now = datetime.datetime.now(datetime.timezone.utc)
+BASELINE_START = time(hour=9, minute=20)
+BASELINE_END = time(hour=9, minute=25)
+_baseline_written: set[date] = set()
 
-    if mode == "mock":
-        rows = [{"symbol": s, "ts_ist": now, "oi": 1000000, "price": 100.0} for s in symbols]
+
+def upsert_many(rows: list[dict]) -> None:  # legacy alias for tests
+    upsert_fut_oi(rows)
+
+
+def _default_symbols() -> list[str]:
+    markets = load_markets()
+    tokens = markets.get("tokens") or {}
+    if tokens:
+        return list(tokens.keys())
+    return markets.get("symbols", [])
+
+
+def run(symbols: Sequence[str] | str | None = None) -> list[dict]:
+    if isinstance(symbols, str):  # legacy mode parameter
+        symbols = None
+    symbols = list(symbols or _default_symbols())
+    logger.info("Starting futures OI job symbols=%s", symbols)
+    provider = resolve_provider(logger=logger)
+    raw = provider.fetch_fut_oi(symbols)
+    normalized = normalize_fut_oi(raw)
+    if not normalized:
+        logger.info("No futures OI rows to upsert")
+        return []
+    upsert_many(normalized)
+
+    now = now_ist()
+    current_time = now.time()
+    if BASELINE_START <= current_time <= BASELINE_END:
+        trading_day = now.date()
+        if trading_day in _baseline_written:
+            logger.debug("Baseline already recorded for %s", trading_day)
+            return normalized
+        baseline_rows = []
+        for row in normalized:
+            baseline_rows.append(
+                {
+                    "symbol": row["symbol"],
+                    "ts_ist": row["ts_ist"],
+                    "price": row["price"],
+                    "oi": row["oi"],
+                    "baseline_tag": "open_baseline",
+                }
+            )
+        insert_or_update_fut_oi_baseline(baseline_rows, trading_day, "open_baseline")
+        logger.info("Baseline snapshot written for trading day %s", trading_day)
+        _baseline_written.add(trading_day)
     else:
-        derivs = cfg.get("derivs") or {}
-        fut_tokens = derivs.get("futures_tokens") or {}
-        if not fut_tokens:
-            log.warning("fut_oi_job: no futures_tokens in markets.yaml → skipping")
-            return
-        api = KiteRest()
-        # quote returns dict keyed by token string
-        quotes = api.quote(list(fut_tokens.values()))
-        rows = _build_rows_from_quote(now, symbols, fut_tokens, quotes)
+        logger.debug("Outside baseline window (%s - %s)", BASELINE_START, BASELINE_END)
+    return normalized
 
-    normed = [normalize_fut_oi(r) for r in rows if r]
-    if not normed:
-        log.info("fut_oi_job: nothing to insert")
-        return
-    upsert_many(normed)
-    log.info("✅ fut_oi_job: inserted %d rows", len(normed))
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    run()
 
 
 if __name__ == "__main__":
-    run("mock")
+    main()

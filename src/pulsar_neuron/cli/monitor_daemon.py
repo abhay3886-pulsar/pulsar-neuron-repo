@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time, sys, signal
 from datetime import datetime, timezone, timedelta
-from pulsar_neuron.db.postgres import get_conn
+from pulsar_neuron.db_legacy.postgres import get_conn
 from pulsar_neuron.telemetry.alerts import send_telegram
 
 
