@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 import signal
 import sys
 import threading
@@ -9,7 +7,9 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from pulsar_neuron.ingest.bar_builder import BarBuilder, IST
+from pulsar_neuron.config.loader import load_config
+from pulsar_neuron.config.secrets import get_kite_credentials
+from pulsar_neuron.ingest.bar_builder import BarBuilder
 from pulsar_neuron.ingest.derive_tfs import derive_15m
 from pulsar_neuron.db.ohlcv_repo import upsert_many
 
@@ -20,20 +20,17 @@ except Exception:  # pragma: no cover
 
 
 def _load_tokens() -> Dict[str, int]:
-    raw = os.getenv("KITE_TOKENS_JSON", "")
-    if not raw:
-        raise RuntimeError(
-            "KITE_TOKENS_JSON not set. Example: '{\"NIFTY 50\":256265, \"NIFTY BANK\":260105}'"
-        )
-    m = json.loads(raw)
-    return {k: int(v) for k, v in m.items()}
+    markets = load_config("markets.yaml")
+    tokens = markets.get("tokens") or {}
+    if not tokens:
+        raise RuntimeError("Token map missing in markets.yaml under 'tokens'.")
+    return {str(symbol): int(token) for symbol, token in tokens.items()}
 
 
 def main():
-    api_key = os.getenv("KITE_API_KEY")
-    access_token = os.getenv("KITE_ACCESS_TOKEN")
-    if not api_key or not access_token:
-        raise RuntimeError("Set KITE_API_KEY and KITE_ACCESS_TOKEN.")
+    kite = get_kite_credentials()
+    api_key = kite["api_key"]
+    access_token = kite["access_token"]
     if KiteTicker is None:
         raise RuntimeError("kiteconnect is not installed. pip install kiteconnect")
 
