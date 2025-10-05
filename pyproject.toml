@@ -7,6 +7,7 @@ packages = [{ include = "pulsar_neuron", from = "src" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
+psycopg2-binary = "^2.9.10"
 
 [build-system]
 requires = ["poetry-core>=1.9.0"]

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import logging
-import psycopg
-from psycopg.rows import dict_row
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from pulsar_neuron.config.secrets import get_db_credentials
 
@@ -64,7 +64,6 @@ create table if not exists market_breadth (
 );
 """
 
-
 def _dsn_from_secret() -> str:
     cfg = get_db_credentials()
     return (
@@ -73,18 +72,19 @@ def _dsn_from_secret() -> str:
         f"password={cfg['password']} sslmode={cfg.get('sslmode','require')}"
     )
 
-
 @contextmanager
 def get_conn():
-    conn = psycopg.connect(_dsn_from_secret(), row_factory=dict_row)
+    """Return psycopg2 connection with RealDictCursor."""
+    conn = psycopg2.connect(_dsn_from_secret(), cursor_factory=RealDictCursor)
     try:
         yield conn
     finally:
         conn.close()
 
-
 def migrate() -> None:
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(DDL)
-        conn.commit()
-        log.info("✅ migrations applied (ohlcv, fut_oi, options_chain, market_breadth)")
+    """Apply schema migrations (create core tables if not exist)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(DDL)
+            conn.commit()
+            log.info("✅ migrations applied (ohlcv, fut_oi, options_chain, market_breadth)")
