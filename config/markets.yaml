@@ -1,3 +1,6 @@
+tokens:
+  "NIFTY 50": 256265
+  "NIFTY BANK": 260105
 symbols:
   - NIFTY
   - BANKNIFTY
