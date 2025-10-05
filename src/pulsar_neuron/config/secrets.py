@@ -13,7 +13,11 @@ import os
 import time
 from typing import Dict
 
-import boto3
+try:
+    import boto3
+except ImportError:  # pragma: no cover - optional dependency
+    boto3 = None  # type: ignore[assignment]
+
 
 from .exception_handler import setup_exception_hook
 
@@ -31,6 +35,9 @@ def get_secret_json(secret_id: str, *, ttl_seconds: int = 900) -> dict:
     cached = _CACHE.get(secret_id)
     if cached and now - cached[1] < ttl_seconds:
         return cached[0]
+
+    if boto3 is None:
+        raise ImportError("boto3 is required to fetch AWS secrets")
 
     region = os.getenv("AWS_REGION", "ap-south-1")
     client = boto3.client("secretsmanager", region_name=region)
