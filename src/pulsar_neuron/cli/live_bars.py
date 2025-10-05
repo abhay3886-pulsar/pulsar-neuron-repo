@@ -11,7 +11,7 @@ from pulsar_neuron.config.kite_auth import TokenWatcher, load_kite_creds
 from pulsar_neuron.config.loader import load_config
 from pulsar_neuron.ingest.bar_builder import BarBuilder
 from pulsar_neuron.ingest.derive_tfs import derive_15m
-from pulsar_neuron.db.ohlcv_repo import upsert_many
+from pulsar_neuron.db_legacy.ohlcv_repo import upsert_many
 
 try:
     from kiteconnect import KiteTicker  # type: ignore

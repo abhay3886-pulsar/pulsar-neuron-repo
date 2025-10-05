@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pulsar_neuron.db.fut_oi_repo import upsert_many
+from pulsar_neuron.db_legacy.fut_oi_repo import upsert_many
 from pulsar_neuron.ingest import fut_oi_job
 
 

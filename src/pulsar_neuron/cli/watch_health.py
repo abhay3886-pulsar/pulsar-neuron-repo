@@ -1,5 +1,5 @@
 from __future__ import annotations
-from pulsar_neuron.db.postgres import get_conn
+from pulsar_neuron.db_legacy.postgres import get_conn
 
 
 def _one(sql: str, *args):

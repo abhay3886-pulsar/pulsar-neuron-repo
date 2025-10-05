@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Dict, List
-from pulsar_neuron.db.ohlcv_repo import read_last_n
+from pulsar_neuron.db_legacy.ohlcv_repo import read_last_n
 
 
 def _sma(vals: List[float], n: int) -> float:

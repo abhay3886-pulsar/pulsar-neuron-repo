@@ -1,8 +1,8 @@
 """Read latest OI and Options snapshot from DB and print small summaries."""
 from __future__ import annotations
 
-from pulsar_neuron.db.fut_oi_repo import read_last
-from pulsar_neuron.db.options_repo import read_latest_snapshot
+from pulsar_neuron.db_legacy.fut_oi_repo import read_last
+from pulsar_neuron.db_legacy.options_repo import read_latest_snapshot
 
 
 def main() -> None:

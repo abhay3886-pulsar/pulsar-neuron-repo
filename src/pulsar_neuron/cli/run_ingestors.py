@@ -7,14 +7,14 @@ from pulsar_neuron.ingest import ohlcv_job, fut_oi_job, options_job, market_job
 def main():
     syms = ["NIFTY 50","NIFTY BANK"]
     print("▶️ OHLCV")
-    bars = ohlcv_job.run(syms)
-    print(f"✅ {sum(len(v) for v in bars.values())} bars")
+    bars = ohlcv_job.run(syms, "5m")
+    print(f"✅ {len(bars)} bars")
 
     print("▶️ Futures OI")
-    print(fut_oi_job.run(['NIFTY','BANKNIFTY']))
+    print(fut_oi_job.run(['NIFTY 50','NIFTY BANK']))
 
     print("▶️ Options Chain")
-    chain = options_job.run(['NIFTY','BANKNIFTY'])
+    chain = options_job.run(['NIFTY 50','NIFTY BANK'])
     print(f"✅ {len(chain)} option rows")
 
     print("▶️ Market Breadth / VIX")

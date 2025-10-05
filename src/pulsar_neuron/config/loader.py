@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
+import os
 from typing import Any
 
 try:  # pragma: no cover - optional dependency
@@ -61,12 +62,73 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _coerce_env_value(value: str) -> Any:
+    lowered = value.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    try:
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        pass
+    if value.startswith("[") and value.endswith("]"):
+        try:
+            import json
+
+            return json.loads(value)
+        except Exception:  # pragma: no cover - lenient parsing
+            return value
+    return value
+
+
+def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
+    result = deepcopy(config)
+
+    def _resolve_key(mapping: dict[str, Any], key: str) -> str:
+        for existing in mapping:
+            if existing.lower() == key:
+                return existing
+        return key
+
+    for env_key, env_value in os.environ.items():
+        if "__" not in env_key:
+            continue
+        parts = [p.lower() for p in env_key.split("__") if p]
+        if not parts:
+            continue
+        top = parts[0]
+        matched_top = None
+        for existing in result:
+            if existing.lower() == top:
+                matched_top = existing
+                break
+        if matched_top is None:
+            continue
+        cursor: Any = result
+        for segment in parts[:-1]:
+            if not isinstance(cursor, dict):
+                cursor = None
+                break
+            actual = _resolve_key(cursor, segment)
+            if actual not in cursor or not isinstance(cursor[actual], dict):
+                cursor[actual] = {}
+            cursor = cursor[actual]
+        if not isinstance(cursor, dict):
+            continue
+        final_key = parts[-1]
+        actual_final = _resolve_key(cursor, final_key)
+        cursor[actual_final] = _coerce_env_value(env_value)
+    return result
+
+
 @lru_cache(maxsize=None)
 def load_config(name: str) -> dict[str, Any]:
     """Load a YAML config by filename relative to the ``config`` directory."""
 
     path = _CONFIG_ROOT / name
-    return _load_yaml(path)
+    data = _load_yaml(path)
+    return _apply_env_overrides(data)
 
 
 def load_defaults() -> dict[str, Any]:

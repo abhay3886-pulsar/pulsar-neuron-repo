@@ -30,3 +30,25 @@ models:
   default: "gpt-4o-mini"
   escalate: "gpt-4o"
   escalate_if_conf_lt: 60
+
+market:
+  tz: "Asia/Kolkata"
+  timeouts:
+    http: 6
+    quote: 3
+  retries:
+    max_attempts: 3
+    base_delay_ms: 250
+  ohlcv:
+    tfs: ["5m", "15m", "1d"]
+    bar_complete_delay_s: 10
+  options:
+    strikes_span: 12
+    expiries_max: 3
+    index_symbols:
+      - "NIFTY 50"
+      - "NIFTY BANK"
+  breadth:
+    enabled: true
+  vix:
+    enabled: true
