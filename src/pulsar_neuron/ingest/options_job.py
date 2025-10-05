@@ -1,25 +1,53 @@
-"""
-Fetch mock option-chain snapshot (ATM ± N strikes).
-"""
-from datetime import datetime, timezone
-import random
+from __future__ import annotations
+
+import datetime
+import logging
+
+from pulsar_neuron.config.loader import load_config
+from pulsar_neuron.db.options_repo import upsert_many
+from pulsar_neuron.normalize.options_norm import normalize_option_row
+
+log = logging.getLogger(__name__)
 
 
-def run(symbols: list[str], mode: str = "mock", strikes: int = 3):
-    now = datetime.now(timezone.utc).isoformat()
-    chain = []
-    for s in symbols:
-        base = 20000 if "BANK" in s else 2200
-        expiry = "2025-10-10"
-        for i in range(-strikes,strikes+1):
-            strike = base + i*100
-            for side in ("CE","PE"):
-                chain.append({
-                    "symbol": s, "ts_ist": now,
-                    "expiry": expiry, "strike": strike, "side": side,
-                    "ltp": round(random.uniform(50,350),2),
-                    "iv":  round(random.uniform(10,30),2),
-                    "oi":  random.randint(10_000,80_000),
-                    "volume": random.randint(500,5000)
-                })
-    return chain
+def _generate_mock_rows(symbols: list[str]) -> list[dict]:
+    now = datetime.datetime.now(datetime.timezone.utc)
+    rows: list[dict] = []
+    for sym in symbols:
+        for side in ("CE", "PE"):
+            rows.append({
+                "symbol": sym,
+                "ts_ist": now,
+                "expiry": now.date(),
+                "strike": 100.0,
+                "side": side,
+                "ltp": 1.0,
+                "iv": 20.0,
+                "oi": 10_000,
+                "volume": 500,
+                "delta": 0.5,
+                "gamma": 0.05,
+                "theta": -0.2,
+                "vega": 0.1,
+            })
+    return rows
+
+
+def run(mode: str = "live") -> None:
+    cfg = load_config("markets.yaml")
+    tokens_cfg = cfg.get("tokens") or {}
+    symbols = list(tokens_cfg.keys()) if isinstance(tokens_cfg, dict) else list(tokens_cfg)
+
+    if not symbols:
+        log.warning("⚠️ options_job: no symbols configured in markets.yaml -> tokens")
+        return
+
+    if mode == "live":
+        # TODO(v0.4): integrate with broker API
+        rows = _generate_mock_rows(symbols)
+    else:
+        rows = _generate_mock_rows(symbols)
+
+    normed = [normalize_option_row(r) for r in rows]
+    upsert_many(normed)
+    log.info("✅ options_job: inserted %d rows", len(normed))
