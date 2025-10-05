@@ -48,10 +48,24 @@ class KiteMarketProvider(MarketProvider):
         tz_name = (self._market_cfg.get("tz") or "Asia/Kolkata")
         self._tz = ZoneInfo(tz_name)
 
-        defaults = (load_defaults().get("market", {}) if isinstance(load_defaults(), dict) else {})
+        defaults_data = load_defaults()
+        defaults_root = defaults_data if isinstance(defaults_data, dict) else {}
+        defaults = defaults_root.get("market", {}) if isinstance(defaults_root, dict) else {}
         retry_cfg = self._market_cfg.get("retries", defaults.get("retries", {}))
         self._max_attempts = int(retry_cfg.get("max_attempts", 3))
         self._base_delay = float(retry_cfg.get("base_delay_ms", 250)) / 1000.0
+        cache_cfg: Dict[str, Any] = {}
+        cache_cfg.update(defaults.get("cache", {}))
+        if isinstance(self._market_cfg, dict):
+            cache_cfg.update(self._market_cfg.get("cache", {}))
+        self._instruments_cache_ttl = int(cache_cfg.get("instruments_ttl_sec", 24 * 3600))
+        options_cfg: Dict[str, Any] = {}
+        options_cfg.update(defaults.get("options", {}))
+        if isinstance(self._market_cfg, dict):
+            options_cfg.update(self._market_cfg.get("options", {}))
+        self._options_cfg = options_cfg
+        self._quote_chunk = int(options_cfg.get("quote_chunk", 200))
+        self._quote_chunk_sleep_s = float(options_cfg.get("chunk_pacing_sec", 0.20))
 
         markets = load_markets()
         self._tokens_cfg = markets.get("tokens", {})  # e.g., {"NIFTY 50": 256265, ...}
@@ -68,7 +82,7 @@ class KiteMarketProvider(MarketProvider):
         self._ensure_instruments()
 
         # NEW: pricing assumptions (configurable)
-        opt_cfg = self._market_cfg.get("options", {}) if isinstance(self._market_cfg, dict) else {}
+        opt_cfg: Dict[str, Any] = dict(self._options_cfg)
         self._risk_free_rate = float(opt_cfg.get("risk_free_rate_annual", 0.065))  # 6.5% default
         self._div_yield = float(opt_cfg.get("dividend_yield_annual", 0.0))         # 0% for indices
 
@@ -97,10 +111,14 @@ class KiteMarketProvider(MarketProvider):
         if self._instrument_cache:
             return
         if self._instrument_cache_path.exists():
-            try:
-                with self._instrument_cache_path.open("r", encoding="utf-8") as fh:
-                    self._instrument_cache = json.load(fh)
-            except Exception:
+            age = time.time() - self._instrument_cache_path.stat().st_mtime
+            if age <= self._instruments_cache_ttl:
+                try:
+                    with self._instrument_cache_path.open("r", encoding="utf-8") as fh:
+                        self._instrument_cache = json.load(fh)
+                except Exception:
+                    self._instrument_cache = {}
+            else:
                 self._instrument_cache = {}
 
         if not self._instrument_cache:
@@ -224,6 +242,7 @@ class KiteMarketProvider(MarketProvider):
                         v=int(bar.get("volume", 0) or 0),
                     )
                 )
+        out.sort(key=lambda b: (b["symbol"], b["ts_ist"]))
         return out
 
     # --------------------------- Futures OI -----------------------------------
@@ -244,6 +263,7 @@ class KiteMarketProvider(MarketProvider):
             price = q.get("last_price") or q.get("last_trade_price") or 0.0
             oi = q.get("oi") or q.get("open_interest") or 0
             rows.append(FutOiRow(symbol=sym, ts_ist=now, price=float(price), oi=int(oi), baseline_tag=None))
+        rows.sort(key=lambda r: (r["symbol"], r["ts_ist"]))
         return rows
 
     # --------------------------- Option Chain (Kite-only) ----------------------
@@ -261,7 +281,7 @@ class KiteMarketProvider(MarketProvider):
             return None
 
     def _pick_expiries_and_strikes(self, opts: List[Dict[str, Any]], center: Optional[float]) -> List[Tuple[Dict[str, Any], float, str]]:
-        options_cfg = self._market_cfg.get("options", {}) if isinstance(self._market_cfg, dict) else {}
+        options_cfg = getattr(self, "_options_cfg", {})
         expiries_max = int(options_cfg.get("expiries_max", 3))
         span = int(options_cfg.get("strikes_span", 12))
 
@@ -293,8 +313,16 @@ class KiteMarketProvider(MarketProvider):
                 strike = float(it.get("strike") or it.get("strike_price") or 0.0)
                 if strike not in window:
                     continue
-                tsym = str(it.get("tradingsymbol") or "")
-                side = "CE" if tsym.endswith("CE") else ("PE" if tsym.endswith("PE") else ("CE" if str(it.get("instrument_type")) == "CE" else "PE"))
+                tsym = str(it.get("tradingsymbol") or "").upper()
+                itype = str(it.get("instrument_type") or "").upper()
+                if itype in ("CE", "PE"):
+                    side = itype
+                elif tsym.endswith("CE"):
+                    side = "CE"
+                elif tsym.endswith("PE"):
+                    side = "PE"
+                else:
+                    continue
                 selected.append((it, strike, side))
         return selected
 
@@ -319,12 +347,14 @@ class KiteMarketProvider(MarketProvider):
             return []
 
         tokens = [int(p[0]["instrument_token"]) for p in picks]
-        chunk_size = int(self._market_cfg.get("options", {}).get("quote_chunk", 350))
+        chunk_size = self._quote_chunk
         quotes: Dict[Any, Any] = {}
         for i in range(0, len(tokens), chunk_size):
             chunk = tokens[i:i + chunk_size]
             q = self._retry(self._kite.quote, f"opt_quote:{symbol}", chunk)
             quotes.update(q)
+            if i + chunk_size < len(tokens) and self._quote_chunk_sleep_s > 0:
+                time.sleep(self._quote_chunk_sleep_s)
 
         now = now_ist().astimezone(self._tz)
         r = self._risk_free_rate
@@ -343,23 +373,31 @@ class KiteMarketProvider(MarketProvider):
             delta = gamma = theta = vega = None
 
             # Compute IV/Greeks only if we have inputs
+            exp_raw = inst.get("expiry")
             if S and S > 0 and strike > 0 and last and float(last) > 0:
-                exp_raw = inst.get("expiry")
                 if isinstance(exp_raw, (date, datetime)):
                     exp_dt = self._expiry_dt_1530(exp_raw)
-                    T = year_fraction(exp_dt, now.astimezone(timezone.utc))
-                    # implied vol
-                    iv_guess = implied_vol(float(last), float(S), float(strike), T, r, qd, side)
-                    if iv_guess is not None and iv_guess > 0:
-                        iv_val = float(iv_guess)
-                        d, g, th, v = bs_greeks(float(S), float(strike), T, r, qd, iv_val, side)
-                        delta, gamma, theta, vega = float(d), float(g), float(th), float(v)
+                    T = max(0.0, year_fraction(exp_dt, now.astimezone(timezone.utc)))
+                    if T > 0:
+                        # implied vol
+                        iv_guess = implied_vol(float(last), float(S), float(strike), T, r, qd, side)
+                        if iv_guess is not None and iv_guess > 0:
+                            iv_val = float(iv_guess)
+                            d, g, th, v = bs_greeks(float(S), float(strike), T, r, qd, iv_val, side)
+                            delta, gamma, theta, vega = float(d), float(g), float(th), float(v)
+
+            if isinstance(exp_raw, datetime):
+                expiry_str = exp_raw.date().isoformat()
+            elif isinstance(exp_raw, date):
+                expiry_str = exp_raw.isoformat()
+            else:
+                expiry_str = str(exp_raw)
 
             out.append(
                 OptionRow(
                     symbol=symbol,
                     ts_ist=now,
-                    expiry=(inst.get("expiry").date() if isinstance(inst.get("expiry"), datetime) else inst.get("expiry")),
+                    expiry=expiry_str,
                     strike=float(strike),
                     side=side,  # type: ignore[arg-type]
                     ltp=float(last),
@@ -373,6 +411,7 @@ class KiteMarketProvider(MarketProvider):
                     vega=vega,
                 )
             )
+        out.sort(key=lambda r: (r["symbol"], r["expiry"], r["strike"], r["side"], r["ts_ist"]))
         return out
 
     # --------------------------- Breadth / VIX (Kite-only) --------------------
@@ -401,3 +440,11 @@ class KiteMarketProvider(MarketProvider):
         except Exception:
             val = 0.0
         return VixRow(ts_ist=now_ist().astimezone(self._tz), value=val)
+
+    def get_rate_budget(self) -> dict[str, float | int]:
+        return {
+            "quote_chunk": self._quote_chunk,
+            "chunk_pacing_sec": self._quote_chunk_sleep_s,
+            "retries": self._max_attempts,
+            "base_delay_sec": self._base_delay,
+        }
