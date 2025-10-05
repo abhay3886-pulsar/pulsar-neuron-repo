@@ -1,35 +1,29 @@
 from __future__ import annotations
-
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from pulsar_neuron.db.ohlcv_repo import read_last_n as read_ohlcv_last
-from pulsar_neuron.db.fut_oi_repo import read_last as read_oi_last
-from pulsar_neuron.db.options_repo import read_latest_snapshot
-
-IST = ZoneInfo("Asia/Kolkata")
+from pulsar_neuron.db.postgres import get_conn
 
 
-def _fmt_ts(ts) -> str:
-    if isinstance(ts, datetime):
-        return ts.astimezone(IST).strftime("%H:%M:%S")
-    return str(ts)
+def _one(sql: str, *args):
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(sql, args)
+        row = cur.fetchone()
+        if not row:
+            return None
+        # support RealDictCursor or tuple
+        return row.get("max") if isinstance(row, dict) else row[0]
 
 
 def main():
-    for s in ["NIFTY 50", "NIFTY BANK"]:
-        last_5m = read_ohlcv_last(s, "5m", 1)
-        last_15m = read_ohlcv_last(s, "15m", 1)
-        ts5 = _fmt_ts(last_5m[-1]["ts_ist"]) if last_5m else "-"
-        ts15 = _fmt_ts(last_15m[-1]["ts_ist"]) if last_15m else "-"
-        print(f"{s:11s}  5m:{ts5}  15m:{ts15}")
+    last_5m = _one("select max(ts_ist) as max from ohlcv where tf='5m'")
+    last_15m = _one("select max(ts_ist) as max from ohlcv where tf='15m'")
+    last_oi = _one("select max(ts_ist) as max from fut_oi")
+    last_opt = _one("select max(ts_ist) as max from options_chain")
+    last_breadth = _one("select max(ts_ist) as max from market_breadth")
 
-    for s in ["NIFTY", "BANKNIFTY"]:
-        oi = read_oi_last(s, 1)
-        oi_ts = _fmt_ts(oi[0]["ts_ist"]) if oi else "-"
-        chain = read_latest_snapshot(s)
-        ch_ts = _fmt_ts(chain[0]["ts_ist"]) if chain else "-"
-        print(f"{s:10s}  OI:{oi_ts}  OPT:{ch_ts}")
+    print("OHLCV 5m      :", last_5m)
+    print("OHLCV 15m     :", last_15m)
+    print("Futures OI    :", last_oi)
+    print("Options Chain :", last_opt)
+    print("Breadth/VIX   :", last_breadth)
 
 
 if __name__ == "__main__":

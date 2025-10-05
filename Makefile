@@ -2,7 +2,7 @@
 # PHONY targets (non-file)
 # ─────────────────────────────────────────────
 .PHONY: fmt lint type test migrate advisory \
-        run-spine run-ingestors \
+        run-spine run-ingestors token-check \
         db-migrate db-oi-mock db-options-mock db-derivs-read \
         run-live run-scheduler watch-health \
         db-init db-smoke
@@ -20,7 +20,7 @@ type:
 	@echo "🔠 type-check (stub)"
 
 test:
-	@echo "🧪 pytest (stub)"
+	PYTHONPATH=src poetry run pytest -q
 
 migrate:
 	@echo "📦 apply sql in db/migrations (stub)"
@@ -68,6 +68,10 @@ run-live:
 # Aligned scheduler (OI / Options / later breadth-vix)
 run-scheduler:
 	poetry run python -m pulsar_neuron.cli.run_scheduler
+
+# Kite token visibility
+token-check:
+	poetry run python -m pulsar_neuron.cli.check_kite_token
 
 # Health watcher (prints latest timestamps from DB)
 watch-health:

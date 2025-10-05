@@ -1,62 +1,61 @@
 from __future__ import annotations
-
-import time
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
-from pulsar_neuron.ingest import fut_oi_job, options_job, market_job
-from pulsar_neuron.db.fut_oi_repo import upsert_many as upsert_fut_oi
-from pulsar_neuron.db.options_repo import upsert_many as upsert_options
-
-IST = ZoneInfo("Asia/Kolkata")
+import signal, sys, time, threading
 
 
-def now_ist() -> datetime:
-    return datetime.now(tz=IST)
+# Example placeholders; replace with real jobs:
+def run_fut_oi_once():
+    # from pulsar_neuron.ingest.fut_oi_job import run as job_run
+    # job_run(mode="live")
+    pass
 
 
-def sleep_until(target: datetime) -> None:
-    while True:
-        now = now_ist()
-        dt = (target - now).total_seconds()
-        if dt <= 0:
-            return
-        time.sleep(min(dt, 0.5))
+def run_options_once():
+    # from pulsar_neuron.ingest.options_job import run as job_run
+    # job_run(mode="live", strikes=5)
+    pass
 
 
-def next_on_second(mod: int, offset_sec: int = 0) -> datetime:
-    """Next IST time where epoch % mod == offset_sec."""
-    now = now_ist().replace(microsecond=0)
-    epoch = int(now.timestamp())
-    add = (mod - (epoch % mod) + offset_sec) % mod
-    return now + timedelta(seconds=add)
+def run_breadth_once():
+    # from pulsar_neuron.ingest.market_job import run as job_run
+    # job_run(mode="live")
+    pass
 
 
 def main():
-    # Cadence plan:
-    # - OI every 120s @ +10s
-    # - Options every 180s @ +20s
-    # - Breadth/VIX every 300s @ +30s  (TODO persist later)
-    while True:
-        t_oi = next_on_second(120, 10)
-        t_opt = next_on_second(180, 20)
-        t_mkt = next_on_second(300, 30)
-        target = min(t_oi, t_opt, t_mkt)
-        sleep_until(target)
-        now = now_ist()
+    stop = threading.Event()
 
-        if abs((now - t_oi).total_seconds()) < 1.0:
-            rows = fut_oi_job.run(["NIFTY", "BANKNIFTY"], mode="live")
-            if rows:
-                upsert_fut_oi(rows)
+    def loop(name, fn, interval):
+        while not stop.is_set():
+            t0 = time.time()
+            try:
+                fn()
+            except Exception as e:
+                print(f"[scheduler] {name} error: {e}", file=sys.stderr)
+            dt = time.time() - t0
+            sleep_for = max(0.0, interval - dt)
+            stop.wait(sleep_for)
 
-        if abs((now - t_opt).total_seconds()) < 1.0:
-            rows = options_job.run(["NIFTY", "BANKNIFTY"], mode="live", strikes=5)
-            if rows:
-                upsert_options(rows)
+    threads = [
+        threading.Thread(target=loop, args=("fut_oi", run_fut_oi_once, 120), daemon=True),
+        threading.Thread(target=loop, args=("options", run_options_once, 180), daemon=True),
+        threading.Thread(target=loop, args=("breadth", run_breadth_once, 300), daemon=True),
+    ]
+    for th in threads:
+        th.start()
 
-        if abs((now - t_mkt).total_seconds()) < 1.0:
-            _ = market_job.run(mode="live")  # TODO: persist breadth/vix repo when ready
+    def _shutdown(*_):
+        stop.set()
+        for th in threads:
+            th.join(timeout=2.0)
+        print("[scheduler] shutdown complete")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    # keep main alive
+    while not stop.is_set():
+        stop.wait(1.0)
 
 
 if __name__ == "__main__":
